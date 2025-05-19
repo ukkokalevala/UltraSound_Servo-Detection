@@ -1,0 +1,102 @@
+#include <ESP32Servo.h>
+
+#define TRIG_PIN 2
+#define ECHO_PIN 3
+#define SERVO_PIN 18
+#define LED_PIN 10
+
+Servo myServo;
+
+// Adjustable Parameters
+int scanStart = 45; // Range of servo motion (45°–135°)
+int scanEnd = 135;
+int scanStep = 2; // Smaller = smoother servo sweep
+int delayPerStep = 100; // smooth movement
+float detectionThreshold = 30.0; // cm Controls how close an object must be
+
+bool objectDetected = false;
+int currentAngle = scanStart;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(LED_PIN, OUTPUT);
+
+  myServo.setPeriodHertz(50);
+  myServo.attach(SERVO_PIN, 500, 2400);
+
+  myServo.write(currentAngle);
+  digitalWrite(LED_PIN, LOW);
+}
+
+void loop() {
+  float distance = getAverageDistance();
+
+  Serial.print("Angle ");
+  Serial.print(currentAngle);
+  Serial.print(" - Distance: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+
+
+
+  if (!objectDetected && distance > 5 && distance < detectionThreshold) {
+    objectDetected = true;
+    digitalWrite(LED_PIN, HIGH);
+    Serial.println(" Object detected — Tracking!");
+  }
+
+// If the distance is less than 30 cm, it stop scanning.
+// If distance goes above 35 cm, it resumes scanning.
+  if (objectDetected && (distance < 5 || distance > detectionThreshold + 5)) {
+    // No longer detecting object
+    objectDetected = false;
+    digitalWrite(LED_PIN, LOW);
+    Serial.println(" Object gone — Resuming scan...");
+  }
+
+  // If no object is found nearby, the servo will enter "scan mode" 
+  // slowly sweeping left and right.
+  if (!objectDetected) {
+    currentAngle += scanStep;
+  // The servo angle is incremented (or decremented) based on scanStep
+    if (currentAngle > scanEnd || currentAngle < scanStart) {
+  // If the servo hits the scan range limits (e.g., 135° or 45°)...
+      scanStep = -scanStep; // reverse direction
+      currentAngle += scanStep;
+    }
+    myServo.write(currentAngle);
+    delay(delayPerStep);
+  } else {
+    // Hold position if object is close
+    myServo.write(currentAngle);
+    delay(200);
+  }
+}
+
+float getAverageDistance() {
+  int valid = 0;
+  float sum = 0;
+  for (int i = 0; i < 3; i++) {
+    float d = getDistance();
+    if (d > 2 && d < 200) {
+      sum += d;
+      valid++;
+    }
+    delay(20);
+  }
+  return (valid > 0) ? (sum / valid) : 999;
+}
+
+float getDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  if (duration == 0) return -1;
+  return duration * 0.034 / 2;
+}
